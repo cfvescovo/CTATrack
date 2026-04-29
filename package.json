@@ -1,0 +1,51 @@
+{
+  "name": "ctatrack",
+  "author": "C.F. Vescovo",
+  "version": "1.0.0",
+  "keywords": ["pebble-app"],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "CTATrack",
+    "uuid": "98734af8-6ed2-409e-a82f-c06ad8bcb782",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "aplite",
+      "basalt",
+      "chalk",
+      "diorite",
+      "emery",
+      "flint",
+      "gabbro"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": {
+      "MsgType":       0,
+      "StationName":   1,
+      "Arrivals":      2,
+      "LineColor":     3,
+      "StationIdx":    4,
+      "TotalStations": 5,
+      "ErrorMsg":      6
+    },
+    "capabilities": ["location"],
+    "resources": {
+      "media": [
+        {
+          "menuIcon": true,
+          "type": "png",
+          "name": "IMAGE_MENU_ICON",
+          "file": "images/menu_icon.png"
+        },
+        {
+          "type": "png",
+          "name": "IMAGE_LARGE_ICON",
+          "file": "images/large_icon.png"
+        }
+      ]
+    }
+  }
+}
