@@ -6,7 +6,7 @@
  * Bus arrivals  : CTA Bus Tracker API + Chicago Open Data Portal for nearby stops
  *
  * Buttons:
- *   UP / DOWN : cycle through up to 5 nearby stations or bus stops
+ *   UP / DOWN : cycle through nearby results (train: 4 max, bus: 8 max)
  *   SELECT    : toggle between Train and Bus mode (triggers a new fetch)
  *   BACK      : exit (handled by Pebble OS)
  */
@@ -41,7 +41,7 @@
 #define LINE_BUS    8
 
 /* Storage */
-#define MAX_STATIONS   5
+#define MAX_STATIONS   8
 #define MAX_NAME_LEN  48
 #define MAX_ARRV_LEN 128
 
@@ -185,14 +185,48 @@ static void update_display(void) {
 
 /* ── AppMessage send ────────────────────────────────────────────────────────── */
 
+static AppTimer *s_send_retry_timer = NULL;
+
+static void send_request(void);  /* forward decl */
+
+static void send_retry_cb(void *ctx) {
+  (void)ctx;
+  s_send_retry_timer = NULL;
+  send_request();  /* keep retrying until outbox is free */
+}
+
+static void outbox_failed_cb(DictionaryIterator *iter, AppMessageResult reason, void *ctx) {
+  (void)iter; (void)ctx;
+  APP_LOG(APP_LOG_LEVEL_ERROR, "Outbox failed: %d", (int)reason);
+  if (!s_send_retry_timer) {
+    s_send_retry_timer = app_timer_register(300, send_retry_cb, NULL);
+  }
+}
+
 static void send_request(void) {
+  if (s_send_retry_timer) {
+    app_timer_cancel(s_send_retry_timer);
+    s_send_retry_timer = NULL;
+  }
   DictionaryIterator *iter;
   AppMessageResult res = app_message_outbox_begin(&iter);
-  if (res != APP_MSG_OK) return;
-
+  if (res == APP_MSG_BUSY) {
+    s_send_retry_timer = app_timer_register(200, send_retry_cb, NULL);
+    return;
+  }
+  if (res != APP_MSG_OK) {
+    APP_LOG(APP_LOG_LEVEL_ERROR, "Outbox begin failed: %d", (int)res);
+    return;
+  }
   uint8_t req = (s_mode == 0) ? MSG_REQ_TRAIN : MSG_REQ_BUS;
   dict_write_uint8(iter, KEY_MSG_TYPE, req);
-  app_message_outbox_send();
+  AppMessageResult send_res = app_message_outbox_send();
+  if (send_res != APP_MSG_OK) {
+    APP_LOG(APP_LOG_LEVEL_ERROR, "Outbox send failed: %d", (int)send_res);
+    if (!s_send_retry_timer) {
+      s_send_retry_timer = app_timer_register(300, send_retry_cb, NULL);
+    }
+  }
 }
 
 /* ── AppMessage receive ─────────────────────────────────────────────────────── */
@@ -271,7 +305,6 @@ static void up_click_cb(ClickRecognizerRef rec, void *ctx) {
   if (s_total < 2) return;
   s_idx = (s_idx - 1 + s_total) % s_total;
   update_display();
-  vibes_short_pulse();
 }
 
 static void down_click_cb(ClickRecognizerRef rec, void *ctx) {
@@ -279,7 +312,6 @@ static void down_click_cb(ClickRecognizerRef rec, void *ctx) {
   if (s_total < 2) return;
   s_idx = (s_idx + 1) % s_total;
   update_display();
-  vibes_short_pulse();
 }
 
 static void select_click_cb(ClickRecognizerRef rec, void *ctx) {
@@ -290,7 +322,6 @@ static void select_click_cb(ClickRecognizerRef rec, void *ctx) {
   s_idx     = 0;
   update_display();
   send_request();
-  vibes_short_pulse();
 }
 
 static void click_config_provider(void *ctx) {
@@ -389,9 +420,10 @@ static void window_unload(Window *window) {
 /* ── App init / deinit ──────────────────────────────────────────────────────── */
 
 static void prv_init(void) {
-  app_message_open(512, 64);
+  app_message_open(1024, 256);
   app_message_register_inbox_received(inbox_received_cb);
   app_message_register_inbox_dropped(inbox_dropped_cb);
+  app_message_register_outbox_failed(outbox_failed_cb);
 
   s_window = window_create();
   window_set_click_config_provider(s_window, click_config_provider);
@@ -407,6 +439,7 @@ static void prv_init(void) {
 
 static void prv_deinit(void) {
   if (s_refresh_timer) app_timer_cancel(s_refresh_timer);
+  if (s_send_retry_timer) app_timer_cancel(s_send_retry_timer);
   window_destroy(s_window);
 }
 
