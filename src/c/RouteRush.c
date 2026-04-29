@@ -6,7 +6,7 @@
  * Bus arrivals  : CTA Bus Tracker API + Chicago Open Data Portal for nearby stops
  *
  * Buttons:
- *   UP / DOWN : cycle through nearby results (train: 4 max, bus: 8 max)
+ *   UP / DOWN : cycle through nearby results
  *   SELECT    : toggle between Train and Bus mode (triggers a new fetch)
  *   BACK      : exit (handled by Pebble OS)
  */
@@ -21,6 +21,7 @@
 #define KEY_STATION_IDX   4
 #define KEY_TOTAL_STNS    5
 #define KEY_ERROR_MSG     6
+#define KEY_STATION_META  7
 
 /* MsgType values  C→JS */
 #define MSG_REQ_TRAIN  0
@@ -41,12 +42,14 @@
 #define LINE_BUS    8
 
 /* Storage */
-#define MAX_STATIONS   8
+#define MAX_STATIONS  16
 #define MAX_NAME_LEN  48
+#define MAX_META_LEN  32
 #define MAX_ARRV_LEN 128
 
 typedef struct {
   char name[MAX_NAME_LEN];
+  char meta[MAX_META_LEN];
   char arrivals[MAX_ARRV_LEN];
   int  line;
 } StationData;
@@ -71,6 +74,7 @@ static Layer           *s_color_bar;
 static TextLayer       *s_line_label;    /* left: "RED LINE" / "BUS" */
 static TextLayer       *s_counter_label; /* right: "2/5" */
 static TextLayer       *s_station_name;
+static TextLayer       *s_station_meta;
 static TextLayer       *s_arrivals;
 static TextLayer       *s_nav_hints;
 
@@ -123,6 +127,8 @@ static void color_bar_update_proc(Layer *layer, GContext *ctx) {
 
 static void update_display(void) {
   GColor txt_color;
+  static char nav_hint_buf[64];
+  snprintf(nav_hint_buf, sizeof(nav_hint_buf), "^v : next %s | SEL: %s", s_mode == 0 ? "stop": "station", s_mode == 0 ? "BUS" : "TRAIN");
 
   if (s_loading) {
     s_current_line = (s_mode == 1) ? LINE_BUS : LINE_RED;
@@ -132,8 +138,9 @@ static void update_display(void) {
     text_layer_set_text(s_line_label,    s_mode == 0 ? "TRAIN" : "BUS");
     text_layer_set_text(s_counter_label, "...");
     text_layer_set_text(s_station_name,  "Locating...");
+    text_layer_set_text(s_station_meta,  "Searching nearby");
     text_layer_set_text(s_arrivals,      "Contacting CTA");
-    text_layer_set_text(s_nav_hints,     "SELECT: switch mode");
+    text_layer_set_text(s_nav_hints,     nav_hint_buf);
     layer_mark_dirty(s_color_bar);
     return;
   }
@@ -146,8 +153,9 @@ static void update_display(void) {
     text_layer_set_text(s_line_label,    s_mode == 0 ? "TRAIN" : "BUS");
     text_layer_set_text(s_counter_label, "0");
     text_layer_set_text(s_station_name,  "No results");
+    text_layer_set_text(s_station_meta,  "");
     text_layer_set_text(s_arrivals,      "None found nearby");
-    text_layer_set_text(s_nav_hints,     "SELECT: switch mode");
+    text_layer_set_text(s_nav_hints,     nav_hint_buf);
     layer_mark_dirty(s_color_bar);
     return;
   }
@@ -166,19 +174,15 @@ static void update_display(void) {
     text_layer_set_text(s_line_label, s_mode == 0 ? "TRAIN" : "BUS");
   }
 
-  static char counter_buf[6];
-  counter_buf[0] = '0' + (char)(s_idx + 1);
-  counter_buf[1] = '/';
-  counter_buf[2] = '0' + (char)s_total;
-  counter_buf[3] = '\0';
+  static char counter_buf[24];
+  snprintf(counter_buf, sizeof(counter_buf), "%d/%d", s_idx + 1, s_total);
   text_layer_set_text(s_counter_label, counter_buf);
 
   text_layer_set_text(s_station_name, st->name);
+  text_layer_set_text(s_station_meta, st->meta);
   text_layer_set_text(s_arrivals, st->arrivals[0] ? st->arrivals : "No arrivals");
 
-  static char nav_buf[32];
-  snprintf(nav_buf, sizeof(nav_buf), "^ v  navigate  |  SEL: switch");
-  text_layer_set_text(s_nav_hints, nav_buf);
+  text_layer_set_text(s_nav_hints, nav_hint_buf);
 
   layer_mark_dirty(s_color_bar);
 }
@@ -252,6 +256,7 @@ static void inbox_received_cb(DictionaryIterator *iter, void *ctx) {
     Tuple *line_t  = dict_find(iter, KEY_LINE_COLOR);
     Tuple *idx_t   = dict_find(iter, KEY_STATION_IDX);
     Tuple *total_t = dict_find(iter, KEY_TOTAL_STNS);
+    Tuple *meta_t  = dict_find(iter, KEY_STATION_META);
 
     if (!name_t || !arrv_t || !line_t || !idx_t || !total_t) return;
 
@@ -263,6 +268,12 @@ static void inbox_received_cb(DictionaryIterator *iter, void *ctx) {
     StationData *st = &s_stations[idx];
     strncpy(st->name, name_t->value->cstring, MAX_NAME_LEN - 1);
     st->name[MAX_NAME_LEN - 1] = '\0';
+    if (meta_t && meta_t->type == TUPLE_CSTRING) {
+      strncpy(st->meta, meta_t->value->cstring, MAX_META_LEN - 1);
+      st->meta[MAX_META_LEN - 1] = '\0';
+    } else {
+      st->meta[0] = '\0';
+    }
     strncpy(st->arrivals, arrv_t->value->cstring, MAX_ARRV_LEN - 1);
     st->arrivals[MAX_ARRV_LEN - 1] = '\0';
     st->line = safe_int(line_t);
@@ -276,6 +287,7 @@ static void inbox_received_cb(DictionaryIterator *iter, void *ctx) {
     s_loading = false;
     s_total   = 0;
     text_layer_set_text(s_station_name, "Error");
+    text_layer_set_text(s_station_meta, "");
     text_layer_set_text(s_arrivals, err_t ? err_t->value->cstring : "Unknown error");
     layer_mark_dirty(s_color_bar);
   }
@@ -343,7 +355,8 @@ static void window_load(Window *window) {
   /* Adaptive dimensions: larger screens (emery/gabbro ≥ 200 px) get a taller
    * header and more room for the station name. */
   int16_t CB     = (H >= 200) ? 38 : 28;  /* colour-bar height */
-  int16_t name_h = (H >= 200) ? 50 : 42;  /* station name height */
+  int16_t name_h = (H >= 200) ? 46 : 38;  /* station name height */
+  int16_t meta_h = 18;
   int16_t nav_h  = 16;
   int16_t gap    = 4;
 
@@ -385,8 +398,17 @@ static void window_load(Window *window) {
   text_layer_set_overflow_mode(s_station_name, GTextOverflowModeWordWrap);
   layer_add_child(root, text_layer_get_layer(s_station_name));
 
+  /* Distance and relative direction */
+  int16_t meta_y = name_y + name_h + gap;
+  s_station_meta = text_layer_create(GRect(6, meta_y, W - 12, meta_h));
+  text_layer_set_background_color(s_station_meta, GColorClear);
+  text_layer_set_text_color(s_station_meta, GColorLightGray);
+  text_layer_set_font(s_station_meta, fonts_get_system_font(FONT_KEY_GOTHIC_18));
+  text_layer_set_text_alignment(s_station_meta, GTextAlignmentLeft);
+  layer_add_child(root, text_layer_get_layer(s_station_meta));
+
   /* Arrivals (fills remaining space above nav bar) */
-  int16_t arrv_y = name_y + name_h + gap;
+  int16_t arrv_y = meta_y + meta_h + gap;
   int16_t arrv_h = H - arrv_y - nav_h;
   s_arrivals = text_layer_create(GRect(6, arrv_y, W - 12, arrv_h));
   text_layer_set_background_color(s_arrivals, GColorClear);
@@ -410,6 +432,7 @@ static void window_unload(Window *window) {
   (void)window;
   text_layer_destroy(s_nav_hints);
   text_layer_destroy(s_arrivals);
+  text_layer_destroy(s_station_meta);
   text_layer_destroy(s_station_name);
   text_layer_destroy(s_counter_label);
   text_layer_destroy(s_line_label);

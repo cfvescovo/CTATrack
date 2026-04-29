@@ -29,9 +29,10 @@
       "LineColor":     3,
       "StationIdx":    4,
       "TotalStations": 5,
-      "ErrorMsg":      6
+      "ErrorMsg":      6,
+      "StationMeta":   7
     },
-    "capabilities": ["location"],
+    "capabilities": ["location", "configurable"],
     "resources": {
       "media": [
         {

@@ -26,6 +26,7 @@ var KEY_LINE_COLOR    = 3;
 var KEY_STATION_IDX   = 4;
 var KEY_TOTAL_STNS    = 5;
 var KEY_ERROR_MSG     = 6;
+var KEY_STATION_META  = 7;
 
 var MSG_REQ_TRAIN = 0;
 var MSG_REQ_BUS   = 1;
@@ -33,10 +34,217 @@ var MSG_STATION   = 2;
 var MSG_ERROR     = 3;
 
 var FETCH_WATCHDOG_MS = 12000;
+var SETTINGS_STORAGE_KEY = 'route_rush_settings_v1';
+var DEFAULT_SETTINGS = {
+  trainRadiusKm: 2.5,
+  busRadiusKm: 0.75,
+  distanceUnit: 'metric'
+};
 
 /* Cached GPS fix — avoids calling getCurrentPosition more than once per session. */
 var cachedCoords = null;
 var geoInFlight  = false;
+var currentMode = MSG_REQ_TRAIN;
+
+function sanitizeRadiusKm(value, fallback, min, max) {
+  var parsed = parseFloat(value);
+  if (!isFinite(parsed)) return fallback;
+  if (parsed < min) return min;
+  if (parsed > max) return max;
+  return Math.round(parsed * 100) / 100;
+}
+
+function sanitizeSettings(raw) {
+  var unitRaw = raw && raw.distanceUnit;
+  var distanceUnit = (unitRaw === 'imperial') ? 'imperial' : 'metric';
+
+  var rawTrainKm = raw && raw.trainRadiusKm;
+  var rawBusKm = raw && raw.busRadiusKm;
+  if (raw && raw.trainRadius !== undefined) {
+    rawTrainKm = (distanceUnit === 'imperial')
+      ? milesToKm(raw.trainRadius)
+      : raw.trainRadius;
+  }
+  if (raw && raw.busRadius !== undefined) {
+    rawBusKm = (distanceUnit === 'imperial')
+      ? milesToKm(raw.busRadius)
+      : raw.busRadius;
+  }
+
+  var trainRadiusKm = sanitizeRadiusKm(
+    rawTrainKm,
+    DEFAULT_SETTINGS.trainRadiusKm,
+    1,
+    25
+  );
+  var busRadiusKm = sanitizeRadiusKm(
+    rawBusKm,
+    DEFAULT_SETTINGS.busRadiusKm,
+    0.1,
+    10
+  );
+
+  if (busRadiusKm >= trainRadiusKm) {
+    busRadiusKm = Math.max(0.1, Math.round((trainRadiusKm - 0.1) * 100) / 100);
+  }
+
+  return {
+    trainRadiusKm: trainRadiusKm,
+    busRadiusKm: busRadiusKm,
+    distanceUnit: distanceUnit
+  };
+}
+
+function loadSettings() {
+  try {
+    var raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return sanitizeSettings(DEFAULT_SETTINGS);
+    return sanitizeSettings(JSON.parse(raw));
+  } catch (e) {
+    return sanitizeSettings(DEFAULT_SETTINGS);
+  }
+}
+
+function saveSettings(raw) {
+  var nextSettings = sanitizeSettings(raw);
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings));
+  } catch (e) {
+    /* ignore storage failures */
+  }
+  return nextSettings;
+}
+
+var appSettings = loadSettings();
+
+function kmToMiles(km) {
+  return km * 0.621371;
+}
+
+function milesToKm(miles) {
+  return miles / 0.621371;
+}
+
+function toDisplayRadius(kmValue, unit) {
+  if (unit === 'imperial') {
+    return Math.round(kmToMiles(kmValue) * 100) / 100;
+  }
+  return Math.round(kmValue * 100) / 100;
+}
+
+function radiusLabel(unit) {
+  return (unit === 'imperial') ? 'mi' : 'km';
+}
+
+function suggestedTrainRadiusText(unit) {
+  return (unit === 'imperial') ? 'Suggested default: 1.5 mi' : 'Suggested default: 2.5 km';
+}
+
+function suggestedBusRadiusText(unit) {
+  return (unit === 'imperial')
+    ? 'Suggested default: 0.47 mi. Must stay smaller than train radius.'
+    : 'Suggested default: 0.75 km. Must stay smaller than train radius.';
+}
+
+function getTrainRadiusMeters() {
+  return Math.round(appSettings.trainRadiusKm * 1000);
+}
+
+function getBusRadiusMeters() {
+  return Math.round(appSettings.busRadiusKm * 1000);
+}
+
+function buildConfigPageUrl() {
+  var unit = appSettings.distanceUnit || 'metric';
+  var displayTrain = toDisplayRadius(appSettings.trainRadiusKm, unit);
+  var displayBus = toDisplayRadius(appSettings.busRadiusKm, unit);
+  var unitText = radiusLabel(unit);
+  var html = [
+    '<!DOCTYPE html>',
+    '<html>',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    '<title>RouteRush Settings</title>',
+    '<style>',
+    'body{font-family:Helvetica,Arial,sans-serif;margin:0;padding:20px;background:#f4f1ea;color:#1f2a2e;}',
+    '.card{max-width:420px;margin:0 auto;background:#fffdf8;border-radius:18px;padding:20px;box-shadow:0 10px 30px rgba(31,42,46,.12);}',
+    'h1{margin:0 0 8px;font-size:28px;line-height:1.1;}',
+    'p{margin:0 0 16px;line-height:1.4;color:#556368;}',
+    'label{display:block;margin:16px 0 8px;font-weight:700;}',
+    'input{width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid #cfd8d3;border-radius:12px;font-size:16px;background:#fff;}',
+    '.hint{font-size:13px;color:#6c7a7f;margin-top:6px;}',
+    '.actions{display:flex;gap:12px;margin-top:24px;}',
+    'button{flex:1;padding:13px 14px;border:0;border-radius:999px;font-size:16px;font-weight:700;}',
+    '.save{background:#0b7a75;color:#fff;}',
+    '.cancel{background:#d8e0dc;color:#233136;}',
+    '</style>',
+    '</head>',
+    '<body>',
+    '<div class="card">',
+    '<h1>Station Radius</h1>',
+    '<p>Train stations can use a wider search area. Bus stops should stay tighter so results stay local.</p>',
+    '<label for="unit">Distance unit</label>',
+    '<select id="unit" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid #cfd8d3;border-radius:12px;font-size:16px;background:#fff;">',
+    '<option value="metric"', unit === 'metric' ? ' selected' : '', '>Metric (km, m)</option>',
+    '<option value="imperial"', unit === 'imperial' ? ' selected' : '', '>Imperial (mi, ft)</option>',
+    '</select>',
+    '<label id="train-label" for="train">Train radius (', unitText, ')</label>',
+    '<input id="train" type="number" min="0.1" max="25" step="0.05" value="', String(displayTrain), '">',
+    '<div class="hint" id="train-hint">', suggestedTrainRadiusText(unit), '</div>',
+    '<label id="bus-label" for="bus">Bus radius (', unitText, ')</label>',
+    '<input id="bus" type="number" min="0.05" max="10" step="0.05" value="', String(displayBus), '">',
+    '<div class="hint" id="bus-hint">', suggestedBusRadiusText(unit), '</div>',
+    '<div class="actions">',
+    '<button class="cancel" id="cancel" type="button">Cancel</button>',
+    '<button class="save" id="save" type="button">Save</button>',
+    '</div>',
+    '</div>',
+    '<script>',
+    '(function(){',
+    'var KM_TO_MI=0.621371;',
+    'var trainInput=document.getElementById("train");',
+    'var busInput=document.getElementById("bus");',
+    'var unitInput=document.getElementById("unit");',
+    'var trainLabel=document.getElementById("train-label");',
+    'var busLabel=document.getElementById("bus-label");',
+    'var trainHint=document.getElementById("train-hint");',
+    'var busHint=document.getElementById("bus-hint");',
+    'var currentUnit="', unit, '";',
+    'function closeWith(payload){window.location="pebblejs://close#"+encodeURIComponent(JSON.stringify(payload));}',
+    'function round2(v){return Math.round(v*100)/100;}',
+    'function applyUnitLabels(unit){',
+    'var u=(unit==="imperial")?"mi":"km";',
+    'trainLabel.textContent="Train radius ("+u+")";',
+    'busLabel.textContent="Bus radius ("+u+")";',
+    'trainHint.textContent=(unit==="imperial")?"Suggested default: 1.5 mi":"Suggested default: 2.5 km";',
+    'busHint.textContent=(unit==="imperial")?"Suggested default: 0.5 mi.":"Suggested default: 0.75 km.";',
+    '}',
+    'function convertInputValues(nextUnit){',
+    'if(nextUnit===currentUnit){return;}',
+    'var train=parseFloat(trainInput.value);',
+    'var bus=parseFloat(busInput.value);',
+    'if(isFinite(train)){trainInput.value=String(round2(nextUnit==="imperial"?train*KM_TO_MI:train/KM_TO_MI));}',
+    'if(isFinite(bus)){busInput.value=String(round2(nextUnit==="imperial"?bus*KM_TO_MI:bus/KM_TO_MI));}',
+    'currentUnit=nextUnit;',
+    'applyUnitLabels(nextUnit);',
+    '}',
+    'unitInput.addEventListener("change",function(){convertInputValues(unitInput.value);});',
+    'document.getElementById("cancel").addEventListener("click",function(){closeWith({cancelled:true});});',
+    'document.getElementById("save").addEventListener("click",function(){',
+    'var train=parseFloat(trainInput.value);',
+    'var bus=parseFloat(busInput.value);',
+    'closeWith({distanceUnit:unitInput.value,trainRadius:train,busRadius:bus});',
+    '});',
+    'applyUnitLabels(currentUnit);',
+    '}());',
+    '</script>',
+    '</body>',
+    '</html>'
+  ].join('');
+
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+}
 
 /* ── CTA route → line color code mapping ────────────────────────────────────── */
 var LINE_COLORS = {
@@ -190,18 +398,47 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function formatDistance(distanceMeters) {
+  if (!isFinite(distanceMeters) || distanceMeters < 0) return '';
+  if (appSettings.distanceUnit === 'imperial') {
+    var feet = distanceMeters * 3.28084;
+    if (feet < 5280) {
+      return Math.round(feet / 10) * 10 + ' ft';
+    }
+    var miles = distanceMeters / 1609.344;
+    return (Math.round(miles * 10) / 10).toFixed(1) + ' mi';
+  }
+  if (distanceMeters < 1000) {
+    return Math.round(distanceMeters / 10) * 10 + ' m';
+  }
+  return (Math.round(distanceMeters / 100) / 10).toFixed(1) + ' km';
+}
+
+function formatStationMeta(distanceMeters) {
+  var distanceText = formatDistance(distanceMeters);
+  return distanceText || '';
+}
+
 /* ── Find nearest train stations ────────────────────────────────────────────── */
-function findNearestStations(stations, lat, lon, maxCount) {
+function findNearestStations(stations, lat, lon, maxCount, radiusMeters) {
   var ranked = stations.map(function(s) {
     return { s: s, d: haversine(lat, lon, s.la, s.lo) };
   });
   ranked.sort(function(a, b) { return a.d - b.d; });
 
-  /* Only return stations within 15 km — outside that range = not in Chicago */
   return ranked
-    .filter(function(r) { return r.d < 15000; })
+    .filter(function(r) { return r.d < radiusMeters; })
     .slice(0, maxCount)
-    .map(function(r) { return r.s; });
+    .map(function(r) {
+      return {
+        id: r.s.id,
+        n: r.s.n,
+        la: r.s.la,
+        lo: r.s.lo,
+        l: r.s.l,
+        distance: r.d
+      };
+    });
 }
 
 /*
@@ -259,7 +496,7 @@ function sendError(text) {
   queueMsg(p);
 }
 
-function sendStation(name, arrivals, line, idx, total) {
+function sendStation(name, arrivals, line, idx, total, meta) {
   var p = {};
   p[KEY_MSG_TYPE]      = MSG_STATION;
   p[KEY_STATION_NAME]  = name.substring(0, 47);
@@ -267,11 +504,12 @@ function sendStation(name, arrivals, line, idx, total) {
   p[KEY_LINE_COLOR]    = line;
   p[KEY_STATION_IDX]   = idx;
   p[KEY_TOTAL_STNS]    = total;
+  p[KEY_STATION_META]  = (meta || '').substring(0, 31);
   queueMsg(p);
 }
 
-var MAX_TRAIN_STATIONS = 4;
-var MAX_BUS_STOPS = 8;
+var MAX_TRAIN_STATIONS = 16;
+var MAX_BUS_STOPS = 16;
 var MAX_TRAIN_ARRIVALS = 3;
 var MAX_BUS_PREDICTIONS = 3;
 
@@ -309,6 +547,7 @@ function fetchTrainArrivals(station, idx, total, cb) {
                    ? LINE_COLORS[etas[0].rt]
                    : station.l;
       cb({ name: station.n, arrivals: lines.join('\n'), line: lineCode,
+         meta: formatStationMeta(station.distance),
            idx: idx, total: total });
     } catch(e) { cb(null); }
   };
@@ -329,11 +568,29 @@ function fetchTrainArrivals(station, idx, total, cb) {
  *   public_nam : stop name
  *   the_geom   : GeoJSON Point — used for within_circle spatial query
  */
-function fetchNearbyBusStops(lat, lon, cb) {
-  var radius = 500; /* metres */
+function normalizeBusStopRow(row, originLat, originLon) {
+  if (!row || !row.systemstop) return null;
+
+  var coords = row.the_geom && row.the_geom.coordinates;
+  if (!coords || coords.length !== 2) return null;
+
+  var stopLon = parseFloat(coords[0]);
+  var stopLat = parseFloat(coords[1]);
+  if (!isFinite(stopLat) || !isFinite(stopLon)) return null;
+
+  return {
+    systemstop: row.systemstop,
+    public_nam: row.public_nam || 'Bus Stop',
+    lat: stopLat,
+    lon: stopLon,
+    distance: haversine(originLat, originLon, stopLat, stopLon)
+  };
+}
+
+function fetchNearbyBusStops(lat, lon, radiusMeters, cb) {
   var url = 'https://data.cityofchicago.org/resource/qs84-j7wh.json'
-          + '?$where=within_circle(the_geom,' + lat + ',' + lon + ',' + radius + ')'
-          + '&$limit=' + MAX_BUS_STOPS + '&$select=systemstop,public_nam,the_geom';
+          + '?$where=within_circle(the_geom,' + lat + ',' + lon + ',' + radiusMeters + ')'
+          + '&$limit=40&$select=systemstop,public_nam,the_geom';
 
   var xhr = new XMLHttpRequest();
   var done = false;
@@ -351,7 +608,12 @@ function fetchNearbyBusStops(lat, lon, cb) {
     try {
       var rows = JSON.parse(xhr.responseText);
       if (!Array.isArray(rows)) { cb([]); return; }
-      cb(rows);
+      var stops = rows
+        .map(function(row) { return normalizeBusStopRow(row, lat, lon); })
+        .filter(function(stop) { return !!stop && stop.distance <= radiusMeters; })
+        .sort(function(a, b) { return a.distance - b.distance; })
+        .slice(0, MAX_BUS_STOPS);
+      cb(stops);
     } catch(e) { cb([]); }
   };
   xhr.onerror = xhr.ontimeout = function() {
@@ -405,6 +667,7 @@ function fetchBusPredictions(stop, idx, total, cb) {
 
       cb({ name: stop.public_nam || 'Bus Stop',
            arrivals: lines.length ? lines.join('\n') : 'No buses',
+         meta: formatStationMeta(stop.distance),
            line: 8,          /* LINE_BUS */
            idx: idx, total: total });
     } catch(e) { cb(null); }
@@ -432,13 +695,14 @@ function fetchAllAndSend(items, fetchFn, maxCount) {
       results[i] = data || {
         name: (item.n || item.public_nam || 'Stop'),
         arrivals: 'No data',
+        meta: formatStationMeta(item.distance),
         line: (item.l !== undefined ? item.l : 8),
         idx: i, total: total
       };
       done++;
       if (done === total) {
         results.forEach(function(r) {
-          sendStation(r.name, r.arrivals, r.line, r.idx, r.total);
+          sendStation(r.name, r.arrivals, r.line, r.idx, r.total, r.meta);
         });
       }
     });
@@ -452,14 +716,20 @@ function doFetchTrains(lat, lon) {
       sendError('Station data unavailable');
       return;
     }
-    var nearest = findNearestStations(stations, lat, lon, MAX_TRAIN_STATIONS);
+    var nearest = findNearestStations(
+      stations,
+      lat,
+      lon,
+      MAX_TRAIN_STATIONS,
+      getTrainRadiusMeters()
+    );
     if (nearest.length === 0) { sendError('Not in Chicago'); return; }
     fetchAllAndSend(nearest, fetchTrainArrivals, MAX_TRAIN_STATIONS);
   });
 }
 
 function doFetchBuses(lat, lon) {
-  fetchNearbyBusStops(lat, lon, function(stops) {
+  fetchNearbyBusStops(lat, lon, getBusRadiusMeters(), function(stops) {
     if (!stops || stops.length === 0) { sendError('No bus stops nearby'); return; }
     fetchAllAndSend(stops, fetchBusPredictions, MAX_BUS_STOPS);
   });
@@ -497,7 +767,26 @@ function fetchWithLocation(mode) {
 
 /* ── Pebble event listeners ──────────────────────────────────────────────────── */
 Pebble.addEventListener('ready', function() {
+  appSettings = loadSettings();
   fetchWithLocation(MSG_REQ_TRAIN);
+});
+
+Pebble.addEventListener('showConfiguration', function() {
+  Pebble.openURL(buildConfigPageUrl());
+});
+
+Pebble.addEventListener('webviewclosed', function(e) {
+  if (!e || !e.response) return;
+
+  try {
+    var payload = JSON.parse(decodeURIComponent(e.response));
+    if (payload && !payload.cancelled) {
+      appSettings = saveSettings(payload);
+      fetchWithLocation(currentMode);
+    }
+  } catch (err) {
+    /* ignore malformed config payloads */
+  }
 });
 
 Pebble.addEventListener('appmessage', function(e) {
@@ -509,6 +798,7 @@ Pebble.addEventListener('appmessage', function(e) {
   var msgType = (typeof rawMsgType === 'string') ? parseInt(rawMsgType, 10) : rawMsgType;
 
   if (msgType === MSG_REQ_TRAIN || msgType === MSG_REQ_BUS) {
+    currentMode = msgType;
     msgQueue   = [];   /* discard any stale pending messages */
     msgSending = false;
     try {
