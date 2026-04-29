@@ -3,10 +3,50 @@
 #
 # Feel free to customize this to your needs.
 #
+import json
 import os.path
 
 top = '.'
 out = 'build'
+
+
+def _load_dotenv(path):
+    values = {}
+    if not os.path.exists(path):
+        return values
+
+    with open(path, 'r', encoding='utf-8') as fp:
+        for raw_line in fp:
+            line = raw_line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if line.startswith('export '):
+                line = line[7:]
+            if '=' not in line:
+                continue
+
+            key, value = line.split('=', 1)
+            key = key.strip()
+            value = value.strip()
+
+            if ((value.startswith('"') and value.endswith('"')) or
+                    (value.startswith("'") and value.endswith("'"))):
+                value = value[1:-1]
+
+            values[key] = value
+
+    return values
+
+
+def _write_pkjs_env_json(ctx):
+    env_values = _load_dotenv('.env')
+    payload = {
+        'TRAIN_API_KEY': env_values.get('TRAIN_API_KEY', ''),
+        'BUS_API_KEY': env_values.get('BUS_API_KEY', ''),
+    }
+
+    node = ctx.path.find_or_declare('src/pkjs/env.local.json')
+    node.write(json.dumps(payload, separators=(',', ':')))
 
 
 def options(ctx):
@@ -24,6 +64,7 @@ def configure(ctx):
 
 
 def build(ctx):
+    _write_pkjs_env_json(ctx)
     ctx.load('pebble_sdk')
 
     build_worker = os.path.exists('worker_src')

@@ -15,8 +15,15 @@
 'use strict';
 
 /* ── API keys ──────────────────────────────────────────────────────────────── */
-var TRAIN_API_KEY = 'TRAIN_API_KEY_REDACTED';
-var BUS_API_KEY   = 'BUS_API_KEY_REDACTED';
+var localEnv = {};
+try {
+  localEnv = require('./env.local.json');
+} catch (e) {
+  localEnv = {};
+}
+
+var TRAIN_API_KEY = localEnv.TRAIN_API_KEY || '';
+var BUS_API_KEY   = localEnv.BUS_API_KEY || '';
 
 /* ── AppMessage key constants (must match package.json messageKeys) ─────────── */
 var KEY_MSG_TYPE      = 0;
@@ -839,6 +846,8 @@ function fetchAllAndSend(items, fetchFn, maxCount) {
 
 /* ── Main fetch dispatchers ──────────────────────────────────────────────────── */
 function doFetchTrains(lat, lon) {
+  if (!TRAIN_API_KEY) { sendError('Missing TRAIN_API_KEY'); return; }
+
   getCtaStations(function(stations) {
     if (!stations || stations.length === 0) {
       sendError('Station data unavailable');
@@ -857,6 +866,8 @@ function doFetchTrains(lat, lon) {
 }
 
 function doFetchBuses(lat, lon) {
+  if (!BUS_API_KEY) { sendError('Missing BUS_API_KEY'); return; }
+
   fetchNearbyBusStops(lat, lon, getBusRadiusMeters(), function(stops) {
     if (!stops || stops.length === 0) { sendError('No bus stops nearby'); return; }
     fetchAllAndSend(stops, fetchBusPredictions, MAX_BUS_STOPS);
