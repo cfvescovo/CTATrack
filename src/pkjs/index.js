@@ -36,8 +36,9 @@ var MSG_ERROR     = 3;
 var FETCH_WATCHDOG_MS = 12000;
 var SETTINGS_STORAGE_KEY = 'route_rush_settings_v1';
 var DEFAULT_SETTINGS = {
-  trainRadiusKm: 2.5,
-  busRadiusKm: 0.75,
+  /* Use clean imperial defaults (2.0 mi train, 0.5 mi bus), stored in km. */
+  trainRadiusKm: 2 / 0.621371,
+  busRadiusKm: 0.5 / 0.621371,
   distanceUnit: 'metric'
 };
 
@@ -83,10 +84,6 @@ function sanitizeSettings(raw) {
     0.1,
     10
   );
-
-  if (busRadiusKm >= trainRadiusKm) {
-    busRadiusKm = Math.max(0.1, Math.round((trainRadiusKm - 0.1) * 100) / 100);
-  }
 
   return {
     trainRadiusKm: trainRadiusKm,
@@ -137,13 +134,13 @@ function radiusLabel(unit) {
 }
 
 function suggestedTrainRadiusText(unit) {
-  return (unit === 'imperial') ? 'Suggested default: 1.5 mi' : 'Suggested default: 2.5 km';
+  return (unit === 'imperial') ? 'Suggested default: 2.0 mi' : 'Suggested default: 3.2 km';
 }
 
 function suggestedBusRadiusText(unit) {
   return (unit === 'imperial')
-    ? 'Suggested default: 0.47 mi. Must stay smaller than train radius.'
-    : 'Suggested default: 0.75 km. Must stay smaller than train radius.';
+    ? 'Suggested default: 0.5 mi.'
+    : 'Suggested default: 0.8 km.';
 }
 
 function getTrainRadiusMeters() {
@@ -183,7 +180,7 @@ function buildConfigPageUrl() {
     '<body>',
     '<div class="card">',
     '<h1>Station Radius</h1>',
-    '<p>Train stations can use a wider search area. Bus stops should stay tighter so results stay local.</p>',
+    '<p>Set train and bus search radii independently based on how broad you want each mode to be.</p>',
     '<label for="unit">Distance unit</label>',
     '<select id="unit" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid #cfd8d3;border-radius:12px;font-size:16px;background:#fff;">',
     '<option value="metric"', unit === 'metric' ? ' selected' : '', '>Metric (km, m)</option>',
@@ -217,8 +214,8 @@ function buildConfigPageUrl() {
     'var u=(unit==="imperial")?"mi":"km";',
     'trainLabel.textContent="Train radius ("+u+")";',
     'busLabel.textContent="Bus radius ("+u+")";',
-    'trainHint.textContent=(unit==="imperial")?"Suggested default: 1.5 mi":"Suggested default: 2.5 km";',
-    'busHint.textContent=(unit==="imperial")?"Suggested default: 0.5 mi.":"Suggested default: 0.75 km.";',
+    'trainHint.textContent=(unit==="imperial")?"Suggested default: 2.0 mi":"Suggested default: 3.2 km";',
+    'busHint.textContent=(unit==="imperial")?"Suggested default: 0.5 mi.":"Suggested default: 0.8 km.";',
     '}',
     'function convertInputValues(nextUnit){',
     'if(nextUnit===currentUnit){return;}',
@@ -581,6 +578,8 @@ function normalizeBusStopRow(row, originLat, originLon) {
   return {
     systemstop: row.systemstop,
     public_nam: row.public_nam || 'Bus Stop',
+    dir: row.dir || '',
+    routesstpg: row.routesstpg || '',
     lat: stopLat,
     lon: stopLon,
     distance: haversine(originLat, originLon, stopLat, stopLon)
@@ -590,7 +589,7 @@ function normalizeBusStopRow(row, originLat, originLon) {
 function fetchNearbyBusStops(lat, lon, radiusMeters, cb) {
   var url = 'https://data.cityofchicago.org/resource/qs84-j7wh.json'
           + '?$where=within_circle(the_geom,' + lat + ',' + lon + ',' + radiusMeters + ')'
-          + '&$limit=40&$select=systemstop,public_nam,the_geom';
+          + '&$limit=40&$select=systemstop,public_nam,dir,routesstpg,the_geom';
 
   var xhr = new XMLHttpRequest();
   var done = false;
@@ -627,59 +626,188 @@ function fetchNearbyBusStops(lat, lon, radiusMeters, cb) {
 }
 
 /* ── Bus predictions from CTA Bus Tracker API ────────────────────────────────── */
-function fetchBusPredictions(stop, idx, total, cb) {
-  /* systemstop comes back as a float string like "14007.0" — Bus Tracker wants "14007" */
-  var stpid = String(parseInt(stop.systemstop, 10));
+function normalizeStopName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function dirShortToLong(dir) {
+  var key = String(dir || '').toUpperCase();
+  if (key === 'EB') return 'Eastbound';
+  if (key === 'WB') return 'Westbound';
+  if (key === 'NB') return 'Northbound';
+  if (key === 'SB') return 'Southbound';
+  return null;
+}
+
+function requestBusPredictionsByStopId(stpid, done) {
   var url = 'https://www.ctabustracker.com/bustime/api/v2/getpredictions'
           + '?key=' + BUS_API_KEY
           + '&stpid=' + stpid
           + '&top=3&format=json';
 
   var xhr = new XMLHttpRequest();
-  var done = false;
+  var finished = false;
   var watchdog = setTimeout(function() {
-    if (done) return;
-    done = true;
-    cb(null);
+    if (finished) return;
+    finished = true;
+    done(null, 'timeout');
   }, FETCH_WATCHDOG_MS);
 
   xhr.timeout = FETCH_WATCHDOG_MS;
   xhr.onload = function() {
-    if (done) return;
-    done = true;
+    if (finished) return;
+    finished = true;
     clearTimeout(watchdog);
     try {
       var resp = JSON.parse(xhr.responseText);
       var btr  = resp['bustime-response'];
-      if (!btr || btr.error) { cb(null); return; }
+      if (!btr) { done(null, 'invalid response'); return; }
 
-      var prd  = btr.prd || [];
+      if (btr.error && btr.error.length) {
+        done(null, btr.error[0].msg || 'api error');
+        return;
+      }
+
+      var prd = btr.prd || [];
       if (!Array.isArray(prd)) prd = [prd];
-
-      var lines = prd.slice(0, MAX_BUS_PREDICTIONS).map(function(p) {
-        var mins = p.prdctdn;
-        var rt   = p.rt || '';
-        var dir  = p.rtdir ? p.rtdir.charAt(0).toUpperCase() : '';
-        var dirStr = dir ? ' ' + dir : '';
-        if (mins === 'DUE') return rt + ': Due' + dirStr;
-        return rt + ': ' + mins + ' min' + dirStr;
-      });
-
-      cb({ name: stop.public_nam || 'Bus Stop',
-           arrivals: lines.length ? lines.join('\n') : 'No buses',
-         meta: formatStationMeta(stop.distance),
-           line: 8,          /* LINE_BUS */
-           idx: idx, total: total });
-    } catch(e) { cb(null); }
+      done(prd, null);
+    } catch (e) {
+      done(null, 'parse error');
+    }
   };
   xhr.onerror = xhr.ontimeout = function() {
-    if (done) return;
-    done = true;
+    if (finished) return;
+    finished = true;
     clearTimeout(watchdog);
-    cb(null);
+    done(null, 'network error');
   };
   xhr.open('GET', url);
   xhr.send();
+}
+
+function resolveLiveStopId(stop, done) {
+  var dirLong = dirShortToLong(stop && stop.dir);
+  var routes = String(stop && stop.routesstpg ? stop.routesstpg : '')
+    .split(',')
+    .map(function(r) { return r.trim(); })
+    .filter(function(r) { return !!r; });
+
+  if (!dirLong || routes.length === 0) {
+    done(null);
+    return;
+  }
+
+  var targetName = normalizeStopName(stop.public_nam);
+  var routeIdx = 0;
+
+  function tryNextRoute() {
+    if (routeIdx >= routes.length) {
+      done(null);
+      return;
+    }
+
+    var rt = routes[routeIdx++];
+    var url = 'https://www.ctabustracker.com/bustime/api/v2/getstops'
+            + '?key=' + BUS_API_KEY
+            + '&rt=' + encodeURIComponent(rt)
+            + '&dir=' + encodeURIComponent(dirLong)
+            + '&format=json';
+
+    var xhr = new XMLHttpRequest();
+    var finished = false;
+    var watchdog = setTimeout(function() {
+      if (finished) return;
+      finished = true;
+      tryNextRoute();
+    }, FETCH_WATCHDOG_MS);
+
+    xhr.timeout = FETCH_WATCHDOG_MS;
+    xhr.onload = function() {
+      if (finished) return;
+      finished = true;
+      clearTimeout(watchdog);
+      try {
+        var resp = JSON.parse(xhr.responseText);
+        var btr  = resp['bustime-response'];
+        if (!btr || btr.error) { tryNextRoute(); return; }
+
+        var stops = btr.stops || [];
+        if (!Array.isArray(stops)) stops = [stops];
+
+        var match = stops.find(function(s) {
+          return normalizeStopName(s.stpnm) === targetName;
+        });
+
+        if (match && match.stpid) {
+          done(String(match.stpid));
+          return;
+        }
+
+        tryNextRoute();
+      } catch (e) {
+        tryNextRoute();
+      }
+    };
+    xhr.onerror = xhr.ontimeout = function() {
+      if (finished) return;
+      finished = true;
+      clearTimeout(watchdog);
+      tryNextRoute();
+    };
+    xhr.open('GET', url);
+    xhr.send();
+  }
+
+  tryNextRoute();
+}
+
+function fetchBusPredictions(stop, idx, total, cb) {
+  /* systemstop comes back as a float string like "14007.0" — Bus Tracker wants "14007" */
+  var stpid = String(parseInt(stop.systemstop, 10));
+
+  function finalizeFromPredictions(prd) {
+    var lines = prd.slice(0, MAX_BUS_PREDICTIONS).map(function(p) {
+      var mins = p.prdctdn;
+      var rt   = p.rt || '';
+      var dir  = p.rtdir ? p.rtdir.charAt(0).toUpperCase() : '';
+      var dirStr = dir ? ' ' + dir : '';
+      if (mins === 'DUE') return rt + ': Due' + dirStr;
+      return rt + ': ' + mins + ' min' + dirStr;
+    });
+
+    cb({ name: stop.public_nam || 'Bus Stop',
+         arrivals: lines.length ? lines.join('\n') : 'No buses',
+         meta: formatStationMeta(stop.distance),
+         line: 8,          /* LINE_BUS */
+         idx: idx, total: total });
+  }
+
+  requestBusPredictionsByStopId(stpid, function(prd, errMsg) {
+    if (prd) {
+      finalizeFromPredictions(prd);
+      return;
+    }
+
+    if (!errMsg || errMsg.indexOf('No data found for parameter') === -1) {
+      cb(null);
+      return;
+    }
+
+    resolveLiveStopId(stop, function(resolvedStpid) {
+      if (!resolvedStpid || resolvedStpid === stpid) {
+        cb(null);
+        return;
+      }
+
+      requestBusPredictionsByStopId(resolvedStpid, function(fallbackPrd) {
+        if (!fallbackPrd) { cb(null); return; }
+        finalizeFromPredictions(fallbackPrd);
+      });
+    });
+  });
 }
 
 /* ── Parallel fetch + in-order send helpers ──────────────────────────────────── */
