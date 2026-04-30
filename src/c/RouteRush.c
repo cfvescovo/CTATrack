@@ -125,44 +125,44 @@ static void color_bar_update_proc(Layer *layer, GContext *ctx) {
 
 /* ── Display refresh ────────────────────────────────────────────────────────── */
 
+/* Sets the colour bar to the current mode's default line and updates label colours. */
+static void apply_mode_bar(void) {
+  s_current_line = (s_mode == 1) ? LINE_BUS : LINE_RED;
+  GColor txt = get_text_on_line(s_current_line);
+  text_layer_set_text_color(s_line_label,    txt);
+  text_layer_set_text_color(s_counter_label, txt);
+  text_layer_set_text(s_line_label, s_mode == 0 ? "TRAIN" : "BUS");
+  layer_mark_dirty(s_color_bar);
+}
+
 static void update_display(void) {
-  GColor txt_color;
   static char nav_hint_buf[64];
-  snprintf(nav_hint_buf, sizeof(nav_hint_buf), "^v : next %s | SEL: %s", s_mode == 0 ? "stop": "station", s_mode == 0 ? "BUS" : "TRAIN");
+  snprintf(nav_hint_buf, sizeof(nav_hint_buf), "^v : next %s | SEL: %s",
+           s_mode == 0 ? "stop" : "station", s_mode == 0 ? "BUS" : "TRAIN");
 
   if (s_loading) {
-    s_current_line = (s_mode == 1) ? LINE_BUS : LINE_RED;
-    txt_color = get_text_on_line(s_current_line);
-    text_layer_set_text_color(s_line_label,    txt_color);
-    text_layer_set_text_color(s_counter_label, txt_color);
-    text_layer_set_text(s_line_label,    s_mode == 0 ? "TRAIN" : "BUS");
+    apply_mode_bar();
     text_layer_set_text(s_counter_label, "...");
     text_layer_set_text(s_station_name,  "Locating...");
     text_layer_set_text(s_station_meta,  "Searching nearby");
     text_layer_set_text(s_arrivals,      "Contacting CTA");
     text_layer_set_text(s_nav_hints,     nav_hint_buf);
-    layer_mark_dirty(s_color_bar);
     return;
   }
 
   if (s_total == 0) {
-    s_current_line = (s_mode == 1) ? LINE_BUS : LINE_RED;
-    txt_color = get_text_on_line(s_current_line);
-    text_layer_set_text_color(s_line_label,    txt_color);
-    text_layer_set_text_color(s_counter_label, txt_color);
-    text_layer_set_text(s_line_label,    s_mode == 0 ? "TRAIN" : "BUS");
+    apply_mode_bar();
     text_layer_set_text(s_counter_label, "0");
     text_layer_set_text(s_station_name,  "No results");
     text_layer_set_text(s_station_meta,  "");
     text_layer_set_text(s_arrivals,      "None found nearby");
     text_layer_set_text(s_nav_hints,     nav_hint_buf);
-    layer_mark_dirty(s_color_bar);
     return;
   }
 
   StationData *st = &s_stations[s_idx];
   s_current_line = st->line;
-  txt_color = get_text_on_line(s_current_line);
+  GColor txt_color = get_text_on_line(s_current_line);
 
   text_layer_set_text_color(s_line_label,    txt_color);
   text_layer_set_text_color(s_counter_label, txt_color);
