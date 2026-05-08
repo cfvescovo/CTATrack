@@ -76,6 +76,7 @@ static int         s_idx     = 0;
 static int         s_total   = 0;
 static bool        s_loading = true;
 static bool        s_compact_ui = false;
+static bool        s_round_ui = false;
 static int         s_theme_mode = THEME_AUTO;
 static StationData s_stations[MAX_STATIONS];
 
@@ -175,7 +176,7 @@ static int s_current_line = LINE_RED;
 static void color_bar_update_proc(Layer *layer, GContext *ctx) {
   GRect b = layer_get_bounds(layer);
   graphics_context_set_fill_color(ctx, get_line_color(s_current_line));
-  graphics_fill_rect(ctx, b, 0, GCornerNone);
+  graphics_fill_rect(ctx, b, s_round_ui ? 10 : 0, s_round_ui ? GCornersAll : GCornerNone);
 }
 
 /* ── Display refresh ────────────────────────────────────────────────────────── */
@@ -193,7 +194,7 @@ static void apply_mode_bar(void) {
 static void update_display(void) {
   static char nav_hint_buf[64];
   apply_theme_colors();
-  if (s_compact_ui) {
+  if (s_round_ui || s_compact_ui) {
     snprintf(nav_hint_buf, sizeof(nav_hint_buf), "^v next  SEL %s",
              s_mode == 0 ? "BUS" : "TRAIN");
   } else {
@@ -423,14 +424,35 @@ static void window_load(Window *window) {
   int16_t W  = bounds.size.w;
   int16_t H  = bounds.size.h;
   int16_t SB = STATUS_BAR_LAYER_HEIGHT; /* 16 on rect, 0 on chalk */
+#if defined(PBL_ROUND)
+  s_round_ui = true;
+  int16_t side_pad   = (W >= 200) ? 28 : 22;
+  int16_t top_pad    = (W >= 200) ? 14 : 10;
+  int16_t bottom_pad = (W >= 200) ? 20 : 14;
+#else
+  s_round_ui = false;
+  int16_t side_pad   = 6;
+  int16_t top_pad    = 0;
+  int16_t bottom_pad = 0;
+#endif
+  int16_t content_x = side_pad;
+  int16_t content_w = W - (side_pad * 2);
+  int16_t header_inset = s_round_ui ? 18 : 0;
+  int16_t body_inset   = s_round_ui ? 10 : 0;
+  int16_t header_x     = content_x + header_inset;
+  int16_t header_w     = content_w - (header_inset * 2);
+  int16_t body_x       = content_x + body_inset;
+  int16_t body_w       = content_w - (body_inset * 2);
 
   /* Compact mode for 144x168 class displays; larger screens keep roomy spacing. */
   s_compact_ui = (H < 200);
-  int16_t CB     = s_compact_ui ? 24 : 38;  /* colour-bar height */
-  int16_t name_h = s_compact_ui ? 20 : 46;  /* station name height */
+  int16_t CB     = s_compact_ui ? 24 : (s_round_ui ? 32 : 38);  /* colour-bar height */
+  int16_t name_h = s_compact_ui ? 20 : (s_round_ui ? 58 : 46);  /* station name height */
   int16_t meta_h = s_compact_ui ? 14 : 18;
-  int16_t nav_h  = s_compact_ui ? 14 : 16;
-  int16_t gap    = s_compact_ui ? 2 : 4;
+  int16_t nav_h  = s_compact_ui ? 14 : (s_round_ui ? 12 : 16);
+  int16_t gap    = s_compact_ui ? 2 : (s_round_ui ? 6 : 4);
+  int16_t counter_w = s_round_ui ? 42 : (s_compact_ui ? 28 : 42);
+  int16_t counter_margin = s_round_ui ? 48 : (s_compact_ui ? 34 : 48);
 
   apply_theme_colors();
 
@@ -441,38 +463,39 @@ static void window_load(Window *window) {
   layer_add_child(root, status_bar_layer_get_layer(s_status_bar));
 
   /* CTA line colour bar */
-  s_color_bar = layer_create(GRect(0, SB, W, CB));
+  s_color_bar = layer_create(GRect(header_x, SB + top_pad, header_w, CB));
   layer_set_update_proc(s_color_bar, color_bar_update_proc);
   layer_add_child(root, s_color_bar);
 
   /* Line name — left-aligned in colour bar */
-  s_line_label = text_layer_create(GRect(6, SB, W - 40, CB));
+  s_line_label = text_layer_create(GRect(header_x + 10, SB + top_pad, header_w - counter_margin - 10, CB));
   text_layer_set_background_color(s_line_label, GColorClear);
   text_layer_set_text_color(s_line_label, GColorWhite);
-  text_layer_set_font(s_line_label, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_18_BOLD));
+  text_layer_set_font(s_line_label, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14_BOLD : (s_round_ui ? FONT_KEY_GOTHIC_24_BOLD : FONT_KEY_GOTHIC_18_BOLD)));
   text_layer_set_text_alignment(s_line_label, GTextAlignmentLeft);
   layer_add_child(root, text_layer_get_layer(s_line_label));
 
   /* Station counter — right-aligned in colour bar ("2/5") */
-  s_counter_label = text_layer_create(GRect(W - 38, SB, 34, CB));
+  s_counter_label = text_layer_create(GRect(header_x + header_w - counter_margin, SB + top_pad, counter_w, CB));
   text_layer_set_background_color(s_counter_label, GColorClear);
   text_layer_set_text_color(s_counter_label, GColorWhite);
-  text_layer_set_font(s_counter_label, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_14));
+  text_layer_set_font(s_counter_label, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14 : FONT_KEY_GOTHIC_18_BOLD));
   text_layer_set_text_alignment(s_counter_label, GTextAlignmentRight);
   layer_add_child(root, text_layer_get_layer(s_counter_label));
 
   /* Station / stop name */
-  int16_t name_y = SB + CB + gap;
-  s_station_name = text_layer_create(GRect(6, name_y, W - 12, name_h));
+  int16_t name_y = SB + top_pad + CB + gap;
+  s_station_name = text_layer_create(GRect(body_x, name_y, body_w, name_h));
   text_layer_set_background_color(s_station_name, GColorClear);
   text_layer_set_text_color(s_station_name, GColorWhite);
-  text_layer_set_font(s_station_name, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_24_BOLD));
-  text_layer_set_overflow_mode(s_station_name, s_compact_ui ? GTextOverflowModeTrailingEllipsis : GTextOverflowModeWordWrap);
+  text_layer_set_font(s_station_name, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14_BOLD : (s_round_ui ? FONT_KEY_GOTHIC_24_BOLD : FONT_KEY_GOTHIC_24_BOLD)));
+  text_layer_set_overflow_mode(s_station_name, (s_compact_ui && !s_round_ui) ? GTextOverflowModeTrailingEllipsis : GTextOverflowModeWordWrap);
+  text_layer_set_text_alignment(s_station_name, GTextAlignmentLeft);
   layer_add_child(root, text_layer_get_layer(s_station_name));
 
   /* Distance and relative direction */
   int16_t meta_y = name_y + name_h + gap;
-  s_station_meta = text_layer_create(GRect(6, meta_y, W - 12, meta_h));
+  s_station_meta = text_layer_create(GRect(body_x, meta_y, body_w, meta_h));
   text_layer_set_background_color(s_station_meta, GColorClear);
   text_layer_set_text_color(s_station_meta, GColorLightGray);
   text_layer_set_font(s_station_meta, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14 : FONT_KEY_GOTHIC_18));
@@ -481,19 +504,20 @@ static void window_load(Window *window) {
 
   /* Arrivals (fills remaining space above nav bar) */
   int16_t arrv_y = meta_y + meta_h + gap;
-  int16_t arrv_h = H - arrv_y - nav_h;
-  s_arrivals = text_layer_create(GRect(6, arrv_y, W - 12, arrv_h));
+  int16_t arrv_h = (H - bottom_pad) - arrv_y - nav_h;
+  s_arrivals = text_layer_create(GRect(body_x, arrv_y, body_w, arrv_h));
   text_layer_set_background_color(s_arrivals, GColorClear);
   text_layer_set_text_color(s_arrivals, GColorWhite);
   text_layer_set_font(s_arrivals, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_18_BOLD));
   text_layer_set_overflow_mode(s_arrivals, GTextOverflowModeWordWrap);
+  text_layer_set_text_alignment(s_arrivals, GTextAlignmentLeft);
   layer_add_child(root, text_layer_get_layer(s_arrivals));
 
   /* Nav hints bar */
-  s_nav_hints = text_layer_create(GRect(0, H - nav_h, W, nav_h));
-  text_layer_set_background_color(s_nav_hints, GColorDarkGray);
-  text_layer_set_text_color(s_nav_hints, GColorWhite);
-  text_layer_set_font(s_nav_hints, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_09 : FONT_KEY_GOTHIC_14));
+  s_nav_hints = text_layer_create(GRect(body_x, H - bottom_pad - nav_h, body_w, nav_h));
+  text_layer_set_background_color(s_nav_hints, s_round_ui ? GColorClear : GColorDarkGray);
+  text_layer_set_text_color(s_nav_hints, s_round_ui ? s_secondary_text_color : GColorWhite);
+  text_layer_set_font(s_nav_hints, fonts_get_system_font((s_compact_ui || s_round_ui) ? FONT_KEY_GOTHIC_09 : FONT_KEY_GOTHIC_14));
   text_layer_set_text_alignment(s_nav_hints, GTextAlignmentCenter);
   layer_add_child(root, text_layer_get_layer(s_nav_hints));
 
