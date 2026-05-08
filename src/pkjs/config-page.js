@@ -5,6 +5,7 @@ var settings = require('./settings');
 function buildConfigPageUrl() {
   var s        = settings.getSettings();
   var unit     = s.distanceUnit || 'metric';
+  var theme    = s.themeMode || 'auto';
   var dispTrain = settings.toDisplayRadius(s.trainRadiusKm, unit);
   var dispBus   = settings.toDisplayRadius(s.busRadiusKm,   unit);
   var unitText  = settings.radiusLabel(unit);
@@ -34,6 +35,13 @@ function buildConfigPageUrl() {
     '<div class="card">',
     '<h1>Station Radius</h1>',
     '<p>Set train and bus search radii independently based on how broad you want each mode to be.</p>',
+    '<label for="theme">Theme</label>',
+    '<select id="theme" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid #cfd8d3;border-radius:12px;font-size:16px;background:#fff;">',
+    '<option value="auto"',  theme === 'auto'  ? ' selected' : '', '>Auto (day/night)</option>',
+    '<option value="light"', theme === 'light' ? ' selected' : '', '>Light</option>',
+    '<option value="dark"',  theme === 'dark'  ? ' selected' : '', '>Dark</option>',
+    '</select>',
+    '<div class="hint">Auto follows the watch local time: light from 8:00 to 19:59, dark overnight.</div>',
     '<label for="unit">Distance unit</label>',
     '<select id="unit" style="width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid #cfd8d3;border-radius:12px;font-size:16px;background:#fff;">',
     '<option value="metric"',   unit === 'metric'   ? ' selected' : '', '>Metric (km, m)</option>',
@@ -84,7 +92,8 @@ function buildConfigPageUrl() {
     'document.getElementById("save").addEventListener("click",function(){',
     'var train=parseFloat(trainInput.value);',
     'var bus=parseFloat(busInput.value);',
-    'closeWith({distanceUnit:unitInput.value,trainRadius:train,busRadius:bus});',
+    'var theme=(document.getElementById("theme").value||"auto");',
+    'closeWith({distanceUnit:unitInput.value,themeMode:theme,trainRadius:train,busRadius:bus});',
     '});',
     'applyUnitLabels(currentUnit);',
     '}());',

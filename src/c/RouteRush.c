@@ -22,6 +22,7 @@
 #define KEY_TOTAL_STNS    5
 #define KEY_ERROR_MSG     6
 #define KEY_STATION_META  7
+#define KEY_THEME         8
 
 /* MsgType values  C→JS */
 #define MSG_REQ_TRAIN  0
@@ -29,6 +30,15 @@
 /* MsgType values  JS→C */
 #define MSG_STATION    2
 #define MSG_ERROR      3
+#define MSG_THEME      4
+
+/* Theme values JS->C */
+#define THEME_DARK   0
+#define THEME_LIGHT  1
+#define THEME_AUTO   2
+
+/* Persisted app state keys */
+#define PERSIST_KEY_THEME_MODE 100
 
 /* CTA line color codes (sent from JS) */
 #define LINE_RED    0
@@ -65,6 +75,7 @@ static int         s_mode    = 0;      /* 0 = train, 1 = bus */
 static int         s_idx     = 0;
 static int         s_total   = 0;
 static bool        s_loading = true;
+static int         s_theme_mode = THEME_AUTO;
 static StationData s_stations[MAX_STATIONS];
 
 /* ── Layers ─────────────────────────────────────────────────────────────────── */
@@ -77,6 +88,49 @@ static TextLayer       *s_station_name;
 static TextLayer       *s_station_meta;
 static TextLayer       *s_arrivals;
 static TextLayer       *s_nav_hints;
+
+/* Theme-derived colors for body/nav layers */
+static GColor s_bg_color;
+static GColor s_primary_text_color;
+static GColor s_secondary_text_color;
+static GColor s_nav_bg_color;
+static GColor s_nav_text_color;
+
+static int theme_from_local_time(void) {
+  time_t now = time(NULL);
+  struct tm *local_time;
+  local_time = localtime(&now);
+  if (!local_time) return THEME_DARK;
+  return (local_time->tm_hour >= 8 && local_time->tm_hour < 20) ? THEME_LIGHT : THEME_DARK;
+}
+
+static int resolved_theme_mode(void) {
+  if (s_theme_mode == THEME_LIGHT || s_theme_mode == THEME_DARK) return s_theme_mode;
+  return theme_from_local_time();
+}
+
+static bool ui_ready(void) {
+  return s_window && s_nav_hints && s_station_name && s_station_meta && s_arrivals && s_status_bar;
+}
+
+static void apply_theme_colors(void) {
+  bool light = (resolved_theme_mode() == THEME_LIGHT);
+  s_bg_color             = light ? GColorWhite : GColorBlack;
+  s_primary_text_color   = light ? GColorBlack : GColorWhite;
+  s_secondary_text_color = light ? GColorDarkGray : GColorLightGray;
+  s_nav_bg_color         = light ? GColorLightGray : GColorDarkGray;
+  s_nav_text_color       = light ? GColorBlack : GColorWhite;
+
+  if (!ui_ready()) return;
+
+  window_set_background_color(s_window, s_bg_color);
+  status_bar_layer_set_colors(s_status_bar, s_bg_color, s_primary_text_color);
+  text_layer_set_text_color(s_station_name, s_primary_text_color);
+  text_layer_set_text_color(s_station_meta, s_secondary_text_color);
+  text_layer_set_text_color(s_arrivals, s_primary_text_color);
+  text_layer_set_background_color(s_nav_hints, s_nav_bg_color);
+  text_layer_set_text_color(s_nav_hints, s_nav_text_color);
+}
 
 /* ── Refresh timer ──────────────────────────────────────────────────────────── */
 static AppTimer *s_refresh_timer = NULL;
@@ -137,6 +191,7 @@ static void apply_mode_bar(void) {
 
 static void update_display(void) {
   static char nav_hint_buf[64];
+  apply_theme_colors();
   snprintf(nav_hint_buf, sizeof(nav_hint_buf), "^v : next %s | SEL: %s",
            s_mode == 0 ? "stop" : "station", s_mode == 0 ? "BUS" : "TRAIN");
 
@@ -282,6 +337,17 @@ static void inbox_received_cb(DictionaryIterator *iter, void *ctx) {
     s_loading = false;
     update_display();
 
+  } else if (msg_type == MSG_THEME) {
+    Tuple *theme_t = dict_find(iter, KEY_THEME);
+    int theme = safe_int(theme_t);
+    if (theme == THEME_LIGHT || theme == THEME_DARK || theme == THEME_AUTO) {
+      s_theme_mode = theme;
+    } else {
+      s_theme_mode = THEME_AUTO;
+    }
+    persist_write_int(PERSIST_KEY_THEME_MODE, s_theme_mode);
+    update_display();
+
   } else if (msg_type == MSG_ERROR) {
     Tuple *err_t = dict_find(iter, KEY_ERROR_MSG);
     s_loading = false;
@@ -360,7 +426,7 @@ static void window_load(Window *window) {
   int16_t nav_h  = 16;
   int16_t gap    = 4;
 
-  window_set_background_color(window, GColorBlack);
+  apply_theme_colors();
 
   /* Status bar — shows current time on the right */
   s_status_bar = status_bar_layer_create();
@@ -425,6 +491,8 @@ static void window_load(Window *window) {
   text_layer_set_text_alignment(s_nav_hints, GTextAlignmentCenter);
   layer_add_child(root, text_layer_get_layer(s_nav_hints));
 
+  apply_theme_colors();
+
   update_display();
 }
 
@@ -443,6 +511,13 @@ static void window_unload(Window *window) {
 /* ── App init / deinit ──────────────────────────────────────────────────────── */
 
 static void prv_init(void) {
+  if (persist_exists(PERSIST_KEY_THEME_MODE)) {
+    int persisted_theme_mode = persist_read_int(PERSIST_KEY_THEME_MODE);
+    if (persisted_theme_mode == THEME_LIGHT || persisted_theme_mode == THEME_DARK || persisted_theme_mode == THEME_AUTO) {
+      s_theme_mode = persisted_theme_mode;
+    }
+  }
+
   app_message_open(1024, 256);
   app_message_register_inbox_received(inbox_received_cb);
   app_message_register_inbox_dropped(inbox_dropped_cb);

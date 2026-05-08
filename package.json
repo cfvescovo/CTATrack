@@ -30,7 +30,8 @@
       "StationIdx":    4,
       "TotalStations": 5,
       "ErrorMsg":      6,
-      "StationMeta":   7
+      "StationMeta":   7,
+      "Theme":         8
     },
     "capabilities": ["location", "configurable"],
     "resources": {

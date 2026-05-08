@@ -16,6 +16,7 @@ exports.KEY_STATION_IDX   = 4;
 exports.KEY_TOTAL_STNS    = 5;
 exports.KEY_ERROR_MSG     = 6;
 exports.KEY_STATION_META  = 7;
+exports.KEY_THEME         = 8;
 
 /* MsgType values C→JS */
 exports.MSG_REQ_TRAIN = 0;
@@ -23,6 +24,12 @@ exports.MSG_REQ_BUS   = 1;
 /* MsgType values JS→C */
 exports.MSG_STATION   = 2;
 exports.MSG_ERROR     = 3;
+exports.MSG_THEME     = 4;
+
+/* Theme values sent JS->C */
+exports.THEME_DARK  = 0;
+exports.THEME_LIGHT = 1;
+exports.THEME_AUTO  = 2;
 
 /* Timeouts and limits */
 exports.FETCH_WATCHDOG_MS   = 12000;
@@ -37,7 +44,8 @@ exports.DEFAULT_SETTINGS = {
   /* Clean imperial defaults (2.0 mi train, 0.5 mi bus), stored in km */
   trainRadiusKm: 2 / 0.621371,
   busRadiusKm:   0.5 / 0.621371,
-  distanceUnit:  'metric'
+  distanceUnit:  'metric',
+  themeMode:     'auto'
 };
 
 /* CTA station data cache */

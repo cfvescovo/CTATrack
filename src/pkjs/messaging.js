@@ -46,6 +46,13 @@ function sendStation(name, arrivals, line, idx, total, meta) {
   queueMsg(p);
 }
 
+function sendTheme(themeValue) {
+  var p = {};
+  p[K.KEY_MSG_TYPE] = K.MSG_THEME;
+  p[K.KEY_THEME] = themeValue;
+  queueMsg(p);
+}
+
 /* ── Parallel fetch + in-order send ─────────────────────────────────────────── */
 
 function fetchAllAndSend(items, fetchFn, maxCount) {
@@ -79,4 +86,5 @@ exports.queueMsg        = queueMsg;
 exports.resetQueue      = resetQueue;
 exports.sendError       = sendError;
 exports.sendStation     = sendStation;
+exports.sendTheme       = sendTheme;
 exports.fetchAllAndSend = fetchAllAndSend;

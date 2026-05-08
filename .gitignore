@@ -19,3 +19,4 @@ Thumbs.db
 # Local secrets
 .env
 src/pkjs/env.local.json
+.tokensave

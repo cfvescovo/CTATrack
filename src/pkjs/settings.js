@@ -18,6 +18,8 @@ function sanitizeRadiusKm(value, fallback, min, max) {
 function sanitizeSettings(raw) {
   var unitRaw = raw && raw.distanceUnit;
   var distanceUnit = (unitRaw === 'imperial') ? 'imperial' : 'metric';
+  var themeRaw = raw && raw.themeMode;
+  var themeMode = (themeRaw === 'light' || themeRaw === 'dark' || themeRaw === 'auto') ? themeRaw : 'auto';
 
   var rawTrainKm = raw && raw.trainRadiusKm;
   var rawBusKm   = raw && raw.busRadiusKm;
@@ -31,7 +33,8 @@ function sanitizeSettings(raw) {
   return {
     trainRadiusKm: sanitizeRadiusKm(rawTrainKm, K.DEFAULT_SETTINGS.trainRadiusKm, 1,   25),
     busRadiusKm:   sanitizeRadiusKm(rawBusKm,   K.DEFAULT_SETTINGS.busRadiusKm,   0.1, 10),
-    distanceUnit:  distanceUnit
+    distanceUnit:  distanceUnit,
+    themeMode:     themeMode
   };
 }
 
@@ -71,6 +74,14 @@ function toDisplayRadius(kmValue, unit) {
 
 function radiusLabel(unit) { return (unit === 'imperial') ? 'mi' : 'km'; }
 
+function getThemeValue(settingsObj) {
+  var source = settingsObj || appSettings || K.DEFAULT_SETTINGS;
+  var mode = source.themeMode || 'auto';
+  if (mode === 'light') return K.THEME_LIGHT;
+  if (mode === 'dark') return K.THEME_DARK;
+  return K.THEME_AUTO;
+}
+
 function suggestedTrainRadiusText(unit) {
   return (unit === 'imperial') ? 'Suggested default: 2.0 mi' : 'Suggested default: 3.2 km';
 }
@@ -95,6 +106,7 @@ exports.kmToMiles                = kmToMiles;
 exports.milesToKm                = milesToKm;
 exports.toDisplayRadius          = toDisplayRadius;
 exports.radiusLabel              = radiusLabel;
+exports.getThemeValue            = getThemeValue;
 exports.suggestedTrainRadiusText = suggestedTrainRadiusText;
 exports.suggestedBusRadiusText   = suggestedBusRadiusText;
 exports.getTrainRadiusMeters     = getTrainRadiusMeters;

@@ -14,6 +14,10 @@ var cachedCoords = null;
 var geoInFlight  = false;
 var currentMode  = K.MSG_REQ_TRAIN;
 
+function sendThemePreference() {
+  msg.sendTheme(settings.getThemeValue(settings.getSettings()));
+}
+
 function fetchWithLocation(mode) {
   if (cachedCoords) {
     if (mode === K.MSG_REQ_TRAIN) trains.doFetchTrains(cachedCoords.lat, cachedCoords.lon);
@@ -21,7 +25,6 @@ function fetchWithLocation(mode) {
     return;
   }
 
-  /* GPS not yet acquired. If already in flight (duplicate startup call), drop. */
   if (geoInFlight) return;
 
   geoInFlight = true;
@@ -44,6 +47,7 @@ function fetchWithLocation(mode) {
 
 Pebble.addEventListener('ready', function() {
   settings.reloadSettings();
+  sendThemePreference();
   fetchWithLocation(K.MSG_REQ_TRAIN);
 });
 
@@ -57,6 +61,7 @@ Pebble.addEventListener('webviewclosed', function(e) {
     var payload = JSON.parse(decodeURIComponent(e.response));
     if (payload && !payload.cancelled) {
       settings.updateSettings(payload);
+      sendThemePreference();
       fetchWithLocation(currentMode);
     }
   } catch (err) {
@@ -74,6 +79,7 @@ Pebble.addEventListener('appmessage', function(e) {
     currentMode = msgType;
     msg.resetQueue();   /* discard any stale pending messages */
     try {
+      sendThemePreference();
       fetchWithLocation(msgType);
     } catch (err) {
       msg.sendError('Internal JS error');
