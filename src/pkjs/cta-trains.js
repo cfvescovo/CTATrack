@@ -175,7 +175,7 @@ function formatRunNumber(eta) {
 function formatEta(eta, now, showRunNumber) {
   var dest = eta.destNm ? ' > ' + eta.destNm.substring(0, 12) : '';
   var runNumber = showRunNumber ? formatRunNumber(eta) : '';
-  if (eta.isDly === '1') return 'Delayed' + runNumber + dest;
+  if (eta.isDly === '1') return 'Dly' + runNumber + dest;
   if (eta.isApp === '1') return 'Due' + runNumber + dest;
   var mins = Math.round((parseCtaTime(eta.arrT) - now) / 60000);
   return ((mins <= 0) ? 'Due' : (mins + ' min')) + runNumber + dest;

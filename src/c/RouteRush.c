@@ -75,6 +75,7 @@ static int         s_mode    = 0;      /* 0 = train, 1 = bus */
 static int         s_idx     = 0;
 static int         s_total   = 0;
 static bool        s_loading = true;
+static bool        s_compact_ui = false;
 static int         s_theme_mode = THEME_AUTO;
 static StationData s_stations[MAX_STATIONS];
 
@@ -192,8 +193,13 @@ static void apply_mode_bar(void) {
 static void update_display(void) {
   static char nav_hint_buf[64];
   apply_theme_colors();
-  snprintf(nav_hint_buf, sizeof(nav_hint_buf), "^v : next %s | SEL: %s",
-           s_mode == 0 ? "stop" : "station", s_mode == 0 ? "BUS" : "TRAIN");
+  if (s_compact_ui) {
+    snprintf(nav_hint_buf, sizeof(nav_hint_buf), "^v next  SEL %s",
+             s_mode == 0 ? "BUS" : "TRAIN");
+  } else {
+    snprintf(nav_hint_buf, sizeof(nav_hint_buf), "^v : next %s | SEL: %s",
+             s_mode == 0 ? "stop" : "station", s_mode == 0 ? "BUS" : "TRAIN");
+  }
 
   if (s_loading) {
     apply_mode_bar();
@@ -418,13 +424,13 @@ static void window_load(Window *window) {
   int16_t H  = bounds.size.h;
   int16_t SB = STATUS_BAR_LAYER_HEIGHT; /* 16 on rect, 0 on chalk */
 
-  /* Adaptive dimensions: larger screens (emery/gabbro ≥ 200 px) get a taller
-   * header and more room for the station name. */
-  int16_t CB     = (H >= 200) ? 38 : 28;  /* colour-bar height */
-  int16_t name_h = (H >= 200) ? 46 : 38;  /* station name height */
-  int16_t meta_h = 18;
-  int16_t nav_h  = 16;
-  int16_t gap    = 4;
+  /* Compact mode for 144x168 class displays; larger screens keep roomy spacing. */
+  s_compact_ui = (H < 200);
+  int16_t CB     = s_compact_ui ? 24 : 38;  /* colour-bar height */
+  int16_t name_h = s_compact_ui ? 20 : 46;  /* station name height */
+  int16_t meta_h = s_compact_ui ? 14 : 18;
+  int16_t nav_h  = s_compact_ui ? 14 : 16;
+  int16_t gap    = s_compact_ui ? 2 : 4;
 
   apply_theme_colors();
 
@@ -443,7 +449,7 @@ static void window_load(Window *window) {
   s_line_label = text_layer_create(GRect(6, SB, W - 40, CB));
   text_layer_set_background_color(s_line_label, GColorClear);
   text_layer_set_text_color(s_line_label, GColorWhite);
-  text_layer_set_font(s_line_label, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
+  text_layer_set_font(s_line_label, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_18_BOLD));
   text_layer_set_text_alignment(s_line_label, GTextAlignmentLeft);
   layer_add_child(root, text_layer_get_layer(s_line_label));
 
@@ -451,7 +457,7 @@ static void window_load(Window *window) {
   s_counter_label = text_layer_create(GRect(W - 38, SB, 34, CB));
   text_layer_set_background_color(s_counter_label, GColorClear);
   text_layer_set_text_color(s_counter_label, GColorWhite);
-  text_layer_set_font(s_counter_label, fonts_get_system_font(FONT_KEY_GOTHIC_14));
+  text_layer_set_font(s_counter_label, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_14));
   text_layer_set_text_alignment(s_counter_label, GTextAlignmentRight);
   layer_add_child(root, text_layer_get_layer(s_counter_label));
 
@@ -460,8 +466,8 @@ static void window_load(Window *window) {
   s_station_name = text_layer_create(GRect(6, name_y, W - 12, name_h));
   text_layer_set_background_color(s_station_name, GColorClear);
   text_layer_set_text_color(s_station_name, GColorWhite);
-  text_layer_set_font(s_station_name, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
-  text_layer_set_overflow_mode(s_station_name, GTextOverflowModeWordWrap);
+  text_layer_set_font(s_station_name, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_24_BOLD));
+  text_layer_set_overflow_mode(s_station_name, s_compact_ui ? GTextOverflowModeTrailingEllipsis : GTextOverflowModeWordWrap);
   layer_add_child(root, text_layer_get_layer(s_station_name));
 
   /* Distance and relative direction */
@@ -469,7 +475,7 @@ static void window_load(Window *window) {
   s_station_meta = text_layer_create(GRect(6, meta_y, W - 12, meta_h));
   text_layer_set_background_color(s_station_meta, GColorClear);
   text_layer_set_text_color(s_station_meta, GColorLightGray);
-  text_layer_set_font(s_station_meta, fonts_get_system_font(FONT_KEY_GOTHIC_18));
+  text_layer_set_font(s_station_meta, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14 : FONT_KEY_GOTHIC_18));
   text_layer_set_text_alignment(s_station_meta, GTextAlignmentLeft);
   layer_add_child(root, text_layer_get_layer(s_station_meta));
 
@@ -479,7 +485,7 @@ static void window_load(Window *window) {
   s_arrivals = text_layer_create(GRect(6, arrv_y, W - 12, arrv_h));
   text_layer_set_background_color(s_arrivals, GColorClear);
   text_layer_set_text_color(s_arrivals, GColorWhite);
-  text_layer_set_font(s_arrivals, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
+  text_layer_set_font(s_arrivals, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_18_BOLD));
   text_layer_set_overflow_mode(s_arrivals, GTextOverflowModeWordWrap);
   layer_add_child(root, text_layer_get_layer(s_arrivals));
 
@@ -487,7 +493,7 @@ static void window_load(Window *window) {
   s_nav_hints = text_layer_create(GRect(0, H - nav_h, W, nav_h));
   text_layer_set_background_color(s_nav_hints, GColorDarkGray);
   text_layer_set_text_color(s_nav_hints, GColorWhite);
-  text_layer_set_font(s_nav_hints, fonts_get_system_font(FONT_KEY_GOTHIC_14));
+  text_layer_set_font(s_nav_hints, fonts_get_system_font(s_compact_ui ? FONT_KEY_GOTHIC_09 : FONT_KEY_GOTHIC_14));
   text_layer_set_text_alignment(s_nav_hints, GTextAlignmentCenter);
   layer_add_child(root, text_layer_get_layer(s_nav_hints));
 
