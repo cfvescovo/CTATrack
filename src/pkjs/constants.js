@@ -45,7 +45,8 @@ exports.DEFAULT_SETTINGS = {
   trainRadiusKm: 2 / 0.621371,
   busRadiusKm:   0.5 / 0.621371,
   distanceUnit:  'metric',
-  themeMode:     'auto'
+  themeMode:     'auto',
+  showTrainRunNumber: false
 };
 
 /* CTA station data cache */

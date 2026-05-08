@@ -20,6 +20,7 @@ function sanitizeSettings(raw) {
   var distanceUnit = (unitRaw === 'imperial') ? 'imperial' : 'metric';
   var themeRaw = raw && raw.themeMode;
   var themeMode = (themeRaw === 'light' || themeRaw === 'dark' || themeRaw === 'auto') ? themeRaw : 'auto';
+  var showTrainRunNumber = !!(raw && raw.showTrainRunNumber);
 
   var rawTrainKm = raw && raw.trainRadiusKm;
   var rawBusKm   = raw && raw.busRadiusKm;
@@ -34,7 +35,8 @@ function sanitizeSettings(raw) {
     trainRadiusKm: sanitizeRadiusKm(rawTrainKm, K.DEFAULT_SETTINGS.trainRadiusKm, 1,   25),
     busRadiusKm:   sanitizeRadiusKm(rawBusKm,   K.DEFAULT_SETTINGS.busRadiusKm,   0.1, 10),
     distanceUnit:  distanceUnit,
-    themeMode:     themeMode
+    themeMode:     themeMode,
+    showTrainRunNumber: showTrainRunNumber
   };
 }
 

@@ -167,12 +167,18 @@ function parseCtaTime(t) {
   );
 }
 
-function formatEta(eta, now) {
+function formatRunNumber(eta) {
+  if (!eta || !eta.rn) return '';
+  return ' #' + String(eta.rn);
+}
+
+function formatEta(eta, now, showRunNumber) {
   var dest = eta.destNm ? ' > ' + eta.destNm.substring(0, 12) : '';
-  if (eta.isDly === '1') return 'Delayed' + dest;
-  if (eta.isApp === '1') return 'Due' + dest;
+  var runNumber = showRunNumber ? formatRunNumber(eta) : '';
+  if (eta.isDly === '1') return 'Delayed' + runNumber + dest;
+  if (eta.isApp === '1') return 'Due' + runNumber + dest;
   var mins = Math.round((parseCtaTime(eta.arrT) - now) / 60000);
-  return ((mins <= 0) ? 'Due' : (mins + ' min')) + dest;
+  return ((mins <= 0) ? 'Due' : (mins + ' min')) + runNumber + dest;
 }
 
 /* ── Train arrivals fetch ────────────────────────────────────────────────────── */
@@ -201,7 +207,9 @@ function fetchTrainArrivals(station, idx, total, cb) {
       if (!Array.isArray(etas)) etas = [etas];
 
       var serverNow = parseCtaTime(ctatt.tmst);
-      var lines     = etas.slice(0, K.MAX_TRAIN_ARRIVALS).map(function(e) { return formatEta(e, serverNow); });
+      var lines     = etas.slice(0, K.MAX_TRAIN_ARRIVALS).map(function(e) {
+        return formatEta(e, serverNow, settings.getSettings().showTrainRunNumber);
+      });
       var lineCode  = (etas.length > 0 && LINE_COLORS[etas[0].rt] !== undefined)
                     ? LINE_COLORS[etas[0].rt] : station.l;
       cb({ name:     station.n,
